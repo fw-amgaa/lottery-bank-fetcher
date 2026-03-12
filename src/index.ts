@@ -4,10 +4,12 @@ import { fetchStatements, BankTransaction } from "./bank";
 import { readState, writeState } from "./state";
 
 const app = express();
+app.use(express.json());
 const PORT = process.env.PORT || 4000;
 const BANK_ACCOUNT_NO = process.env.BANK_ACCOUNT_NO!;
 const NEXTJS_CALLBACK_URL = process.env.NEXTJS_CALLBACK_URL!;
 const CALLBACK_SECRET = process.env.CALLBACK_SECRET!;
+const SMS_API_KEY = process.env.SMS_API_KEY!;
 
 // Called by cron-jobs.org every minute
 app.get("/fetch", async (req, res) => {
@@ -79,6 +81,36 @@ app.get("/fetch", async (req, res) => {
   // Only update state after successful callback
   writeState({ lastFetchedAt: now.toISOString() });
   return res.json({ success: true, processed: newTransactions.length });
+});
+
+// SMS tunnel — Next.js calls this since EC2 IP is whitelisted with Unitel
+app.post("/sms", async (req, res) => {
+  const apiKey = req.headers["x-api-key"];
+  if (apiKey !== CALLBACK_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const { to, message } = req.body;
+  if (!to || !message) {
+    return res.status(400).json({ error: "Missing to or message" });
+  }
+
+  try {
+    const smsRes = await fetch(
+      `https://pn.unitel.mn/api/message/send/sms?enc=${SMS_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to, message }),
+      }
+    );
+    const data = await smsRes.text();
+    console.log(`[sms] to=${to} status=${smsRes.status} response=${data}`);
+    return res.status(smsRes.ok ? 200 : 502).json({ ok: smsRes.ok, response: data });
+  } catch (err) {
+    console.error("[sms] Error:", err);
+    return res.status(500).json({ error: String(err) });
+  }
 });
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
