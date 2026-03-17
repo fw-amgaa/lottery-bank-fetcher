@@ -1,5 +1,5 @@
 import "dotenv/config";
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import { fetchStatements, BankTransaction } from "./bank";
 import { readState, writeState } from "./state";
 
@@ -12,7 +12,7 @@ const CALLBACK_SECRET = process.env.CALLBACK_SECRET!;
 const SMS_API_KEY = process.env.SMS_API_KEY!;
 
 // Called by cron-jobs.org every minute
-app.get("/fetch", async (req, res) => {
+app.get("/fetch", async (_req, res) => {
   const now = new Date();
   const state = readState();
 
@@ -109,6 +109,104 @@ app.post("/sms", async (req, res) => {
     return res.status(smsRes.ok ? 200 : 502).json({ ok: smsRes.ok, response: data });
   } catch (err) {
     console.error("[sms] Error:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+function smsAuthMiddleware(req: Request, res: Response, next: NextFunction) {
+  const apiKey = req.headers["x-api-key"];
+  if (apiKey !== CALLBACK_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const { to, message } = req.body;
+  if (!to || !message) {
+    return res.status(400).json({ error: "Missing to or message" });
+  }
+  next();
+}
+
+app.post("/sms/unitel", smsAuthMiddleware, async (req, res) => {
+  const { to, message } = req.body;
+  try {
+    const smsRes = await fetch(
+      `https://pn.unitel.mn/api/message/send/sms?enc=${SMS_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to, message }),
+      }
+    );
+    const data = await smsRes.text();
+    console.log(`[sms/unitel] to=${to} status=${smsRes.status} response=${data}`);
+    return res.status(smsRes.ok ? 200 : 502).json({ ok: smsRes.ok, response: data });
+  } catch (err) {
+    console.error("[sms/unitel] Error:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/sms/skytel", smsAuthMiddleware, async (req, res) => {
+  const { to, message } = req.body;
+  try {
+    const params = new URLSearchParams({
+      id: "1000669",
+      src: "134888",
+      dest: to,
+      text: message,
+    });
+    const smsRes = await fetch(
+      `https://smsgw.skytel.mn/SMSGW-war/unicode?${params.toString()}`
+    );
+    const data = await smsRes.text();
+    console.log(`[sms/skytel] to=${to} status=${smsRes.status} response=${data}`);
+    const ok = data.trim() === "OK";
+    return res.status(ok ? 200 : 502).json({ ok, response: data });
+  } catch (err) {
+    console.error("[sms/skytel] Error:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/sms/gmobile", smsAuthMiddleware, async (req, res) => {
+  const { to, message } = req.body;
+  try {
+    const params = new URLSearchParams({
+      username: "kirtos4888",
+      password: "nosko1348",
+      from: "134888",
+      to,
+      text: message,
+    });
+    const smsRes = await fetch(
+      `http://sms-special.gmobile.mn/cgi-bin/sendsms?${params.toString()}`
+    );
+    const data = await smsRes.text();
+    console.log(`[sms/gmobile] to=${to} status=${smsRes.status} response=${data}`);
+    return res.status(smsRes.ok ? 200 : 502).json({ ok: smsRes.ok, response: data });
+  } catch (err) {
+    console.error("[sms/gmobile] Error:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/sms/mobicom", smsAuthMiddleware, async (req, res) => {
+  const { to, message } = req.body;
+  try {
+    const params = new URLSearchParams({
+      servicename: "critic",
+      username: "design",
+      from: "134888",
+      to,
+      msg: message,
+    });
+    const smsRes = await fetch(
+      `http://27.123.214.168/smsmt/mt?${params.toString()}`
+    );
+    const data = await smsRes.text();
+    console.log(`[sms/mobicom] to=${to} status=${smsRes.status} response=${data}`);
+    return res.status(smsRes.ok ? 200 : 502).json({ ok: smsRes.ok, response: data });
+  } catch (err) {
+    console.error("[sms/mobicom] Error:", err);
     return res.status(500).json({ error: String(err) });
   }
 });
