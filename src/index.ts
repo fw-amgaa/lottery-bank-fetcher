@@ -32,15 +32,9 @@ app.get("/fetch", async (_req, res) => {
     return res.status(502).json({ success: false, error: String(err) });
   }
 
-  // Filter to only new transactions (after lastFetchedAt) and only incoming (credit)
-  const newTransactions = transactions.filter((t) => {
-    const isNew = state.lastFetchedAt
-      ? new Date(t.TxnDate) > new Date(state.lastFetchedAt)
-      : true;
-    // TxnType "C" = credit (incoming). Filter out debits.
-    const isCredit = t.TxnType === "C" || t.Amount > 0;
-    return isNew && isCredit;
-  });
+  // TxnType "1" = credit/incoming. "0" = debit (bank fees etc). Filter out everything else.
+  // Deduplication is handled by the callback via jr_no+jr_item_no.
+  const newTransactions = transactions.filter((t) => t.TxnType === "1");
 
   console.log(
     `[fetch] Found ${transactions.length} total, ${newTransactions.length} new`
